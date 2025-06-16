@@ -1,0 +1,158 @@
+import pygame
+import math
+import random
+import sys
+
+# Initialize Pygame
+pygame.init()
+WIDTH, HEIGHT = 1000, 800
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("CelestiaCode: Space Explorer")
+clock = pygame.time.Clock()
+
+# Colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+YELLOW = (255, 255, 0)
+GRAY = (150, 150, 150)
+RED = (255, 0, 0)
+
+# Planet class
+class CelestialBody:
+    def __init__(self, name, x, y, radius, color, mass, is_star=False):
+        self.name = name
+        self.x = x
+        self.y = y
+        self.radius = radius
+        self.color = color
+        self.mass = mass
+        self.is_star = is_star
+        self.orbit = []
+        self.vx = 0
+        self.vy = 0
+
+    def draw(self, screen, cx, cy, zoom):
+        x = (self.x - cx) * zoom + WIDTH // 2
+        y = (self.y - cy) * zoom + HEIGHT // 2
+        pygame.draw.circle(screen, self.color, (int(x), int(y)), max(2, int(self.radius * zoom)))
+
+        # Draw orbit path
+        if len(self.orbit) > 2:
+            points = []
+            for ox, oy in self.orbit:
+                px = (ox - cx) * zoom + WIDTH // 2
+                py = (oy - cy) * zoom + HEIGHT // 2
+                points.append((px, py))
+            pygame.draw.lines(screen, self.color, False, points, 1)
+
+    def update_position(self, bodies, dt):
+        G = 6.67430e-11
+        ax = ay = 0
+        for body in bodies:
+            if body is self:
+                continue
+            dx = body.x - self.x
+            dy = body.y - self.y
+            dist_sq = dx ** 2 + dy ** 2
+            dist = math.sqrt(dist_sq)
+            if dist == 0:
+                continue
+            force = G * body.mass / dist_sq
+            ax += force * dx / dist
+            ay += force * dy / dist
+        self.vx += ax * dt
+        self.vy += ay * dt
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        if len(self.orbit) > 500:
+            self.orbit.pop(0)
+        self.orbit.append((self.x, self.y))
+
+# Spacecraft
+class Spacecraft:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.vx = 0
+        self.vy = 0
+        self.path = []
+
+    def update(self, bodies, dt):
+        G = 6.67430e-11
+        ax = ay = 0
+        for body in bodies:
+            dx = body.x - self.x
+            dy = body.y - self.y
+            dist_sq = dx ** 2 + dy ** 2
+            dist = math.sqrt(dist_sq)
+            if dist == 0:
+                continue
+            force = G * body.mass / dist_sq
+            ax += force * dx / dist
+            ay += force * dy / dist
+        self.vx += ax * dt
+        self.vy += ay * dt
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        if len(self.path) > 800:
+            self.path.pop(0)
+        self.path.append((self.x, self.y))
+
+    def draw(self, screen, cx, cy, zoom):
+        x = (self.x - cx) * zoom + WIDTH // 2
+        y = (self.y - cy) * zoom + HEIGHT // 2
+        pygame.draw.circle(screen, RED, (int(x), int(y)), 3)
+        if len(self.path) > 2:
+            points = [((px - cx) * zoom + WIDTH // 2, (py - cy) * zoom + HEIGHT // 2) for px, py in self.path]
+            pygame.draw.lines(screen, RED, False, points, 1)
+
+# Set up celestial bodies
+sun = CelestialBody("Sun", 0, 0, 30, YELLOW, 1.9885e30, is_star=True)
+earth = CelestialBody("Earth", 1.496e11, 0, 15, WHITE, 5.972e24)
+earth.vy = 29780
+mars = CelestialBody("Mars", 2.279e11, 0, 12, GRAY, 6.39e23)
+mars.vy = 24070
+bodies = [sun, earth, mars]
+
+# Add asteroid belt
+for _ in range(200):
+    angle = random.uniform(0, 2 * math.pi)
+    radius = random.uniform(3.0e11, 4.0e11)
+    x = radius * math.cos(angle)
+    y = radius * math.sin(angle)
+    rock = CelestialBody("Asteroid", x, y, 1, GRAY, 1e18)
+    speed = math.sqrt(6.67430e-11 * sun.mass / radius)
+    rock.vx = -speed * math.sin(angle)
+    rock.vy = speed * math.cos(angle)
+    bodies.append(rock)
+
+# Create spacecraft
+ship = Spacecraft(1.496e11, -2e8)
+ship.vx = 29780
+
+# Camera settings
+cx, cy = 0, 0
+zoom = 1 / 2e9
+
+# Main loop
+running = True
+while running:
+    dt = 3600  # 1 hour time step
+    screen.fill(BLACK)
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    for body in bodies:
+        body.update_position(bodies, dt)
+        body.draw(screen, cx, cy, zoom)
+
+    ship.update(bodies, dt)
+    ship.draw(screen, cx, cy, zoom)
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()
