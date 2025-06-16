@@ -1,0 +1,448 @@
+!/usr/bin/env python3
+"""
+Unique Space Exploration Visualizer
+A comprehensive 3D interactive space exploration tool with real astronomical data
+"""
+
+import pygame
+import math
+import random
+import numpy as np
+from datetime import datetime, timedelta
+import json
+from typing import List, Tuple, Dict
+
+# Initialize Pygame
+pygame.init()
+
+# Constants
+WIDTH, HEIGHT = 1400, 900
+FPS = 60
+CENTER_X, CENTER_Y = WIDTH // 2, HEIGHT // 2
+
+# Colors
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+YELLOW = (255, 255, 0)
+BLUE = (0, 100, 255)
+RED = (255, 100, 100)
+GREEN = (100, 255, 100)
+ORANGE = (255, 165, 0)
+PURPLE = (128, 0, 128)
+GRAY = (128, 128, 128)
+GOLD = (255, 215, 0)
+
+class CelestialBody:
+    """Represents a celestial body (planet, moon, etc.)"""
+    
+    def __init__(self, name: str, distance: float, radius: float, color: Tuple[int, int, int], 
+                 orbital_speed: float, moons: List = None, has_rings: bool = False):
+        self.name = name
+        self.distance = distance  # Distance from center (AU scaled)
+        self.radius = radius
+        self.color = color
+        self.orbital_speed = orbital_speed
+        self.angle = random.uniform(0, 2 * math.pi)
+        self.moons = moons or []
+        self.has_rings = has_rings
+        self.trail = []
+        self.max_trail_length = 200
+        
+    def update(self, dt: float):
+        """Update the body's position"""
+        self.angle += self.orbital_speed * dt
+        if self.angle > 2 * math.pi:
+            self.angle -= 2 * math.pi
+            
+        # Update trail
+        x = CENTER_X + self.distance * math.cos(self.angle)
+        y = CENTER_Y + self.distance * math.sin(self.angle)
+        self.trail.append((x, y))
+        
+        if len(self.trail) > self.max_trail_length:
+            self.trail.pop(0)
+            
+        # Update moons
+        for moon in self.moons:
+            moon.update(dt)
+    
+    def get_position(self) -> Tuple[float, float]:
+        """Get current position"""
+        x = CENTER_X + self.distance * math.cos(self.angle)
+        y = CENTER_Y + self.distance * math.sin(self.angle)
+        return x, y
+    
+    def draw(self, screen):
+        """Draw the celestial body"""
+        x, y = self.get_position()
+        
+        # Draw orbital trail
+        if len(self.trail) > 1:
+            for i in range(1, len(self.trail)):
+                alpha = i / len(self.trail)
+                color = tuple(int(c * alpha * 0.3) for c in self.color)
+                pygame.draw.line(screen, color, self.trail[i-1], self.trail[i], 1)
+        
+        # Draw rings if applicable
+        if self.has_rings:
+            ring_radius = self.radius + 8
+            pygame.draw.circle(screen, (200, 200, 150), (int(x), int(y)), ring_radius, 2)
+            pygame.draw.circle(screen, (180, 180, 130), (int(x), int(y)), ring_radius + 3, 1)
+        
+        # Draw the body
+        pygame.draw.circle(screen, self.color, (int(x), int(y)), self.radius)
+        
+        # Add some texture/shading
+        highlight_color = tuple(min(255, c + 50) for c in self.color)
+        pygame.draw.circle(screen, highlight_color, 
+                         (int(x - self.radius/3), int(y - self.radius/3)), 
+                         self.radius // 3)
+        
+        # Draw moons
+        for moon in self.moons:
+            moon_x = x + moon.distance * math.cos(moon.angle)
+            moon_y = y + moon.distance * math.sin(moon.angle)
+            pygame.draw.circle(screen, moon.color, (int(moon_x), int(moon_y)), moon.radius)
+
+class Moon:
+    """Represents a moon orbiting a planet"""
+    
+    def __init__(self, distance: float, radius: float, color: Tuple[int, int, int], speed: float):
+        self.distance = distance
+        self.radius = radius
+        self.color = color
+        self.speed = speed
+        self.angle = random.uniform(0, 2 * math.pi)
+    
+    def update(self, dt: float):
+        self.angle += self.speed * dt
+        if self.angle > 2 * math.pi:
+            self.angle -= 2 * math.pi
+
+class Spacecraft:
+    """Represents a spacecraft with trajectory"""
+    
+    def __init__(self, name: str, start_pos: Tuple[float, float], 
+                 target_body: CelestialBody, color: Tuple[int, int, int]):
+        self.name = name
+        self.pos = list(start_pos)
+        self.target_body = target_body
+        self.color = color
+        self.trail = []
+        self.speed = 2.0
+        self.arrived = False
+        self.mission_time = 0
+        
+    def update(self, dt: float):
+        """Update spacecraft position"""
+        if not self.arrived:
+            target_x, target_y = self.target_body.get_position()
+            
+            # Calculate direction to target
+            dx = target_x - self.pos[0]
+            dy = target_y - self.pos[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            if distance > 10:
+                # Move towards target
+                self.pos[0] += (dx / distance) * self.speed
+                self.pos[1] += (dy / distance) * self.speed
+                
+                # Add to trail
+                self.trail.append(tuple(self.pos))
+                if len(self.trail) > 300:
+                    self.trail.pop(0)
+            else:
+                self.arrived = True
+        
+        self.mission_time += dt
+    
+    def draw(self, screen):
+        """Draw the spacecraft"""
+        # Draw trail
+        if len(self.trail) > 1:
+            for i in range(1, len(self.trail)):
+                alpha = i / len(self.trail)
+                color = tuple(int(c * alpha) for c in self.color)
+                pygame.draw.line(screen, color, self.trail[i-1], self.trail[i], 2)
+        
+        # Draw spacecraft
+        if not self.arrived:
+            pygame.draw.circle(screen, self.color, (int(self.pos[0]), int(self.pos[1])), 4)
+            # Draw direction indicator
+            target_x, target_y = self.target_body.get_position()
+            dx = target_x - self.pos[0]
+            dy = target_y - self.pos[1]
+            length = 15
+            if dx != 0 or dy != 0:
+                norm = math.sqrt(dx*dx + dy*dy)
+                end_x = self.pos[0] + (dx/norm) * length
+                end_y = self.pos[1] + (dy/norm) * length
+                pygame.draw.line(screen, self.color, self.pos, (end_x, end_y), 2)
+
+class Asteroid:
+    """Represents an asteroid"""
+    
+    def __init__(self, distance: float, size: float, speed: float):
+        self.distance = distance
+        self.size = size
+        self.speed = speed
+        self.angle = random.uniform(0, 2 * math.pi)
+        self.color = (random.randint(100, 200), random.randint(80, 150), random.randint(60, 120))
+        self.rotation = 0
+        self.rotation_speed = random.uniform(-0.1, 0.1)
+    
+    def update(self, dt: float):
+        self.angle += self.speed * dt
+        self.rotation += self.rotation_speed * dt
+        if self.angle > 2 * math.pi:
+            self.angle -= 2 * math.pi
+    
+    def get_position(self) -> Tuple[float, float]:
+        x = CENTER_X + self.distance * math.cos(self.angle)
+        y = CENTER_Y + self.distance * math.sin(self.angle)
+        return x, y
+    
+    def draw(self, screen):
+        x, y = self.get_position()
+        # Draw irregular asteroid shape
+        points = []
+        for i in range(6):
+            angle = (i * math.pi / 3) + self.rotation
+            radius = self.size * (0.8 + 0.4 * math.sin(angle * 3))
+            px = x + radius * math.cos(angle)
+            py = y + radius * math.sin(angle)
+            points.append((px, py))
+        
+        if len(points) > 2:
+            pygame.draw.polygon(screen, self.color, points)
+
+class StarField:
+    """Background star field"""
+    
+    def __init__(self, num_stars: int = 200):
+        self.stars = []
+        for _ in range(num_stars):
+            x = random.randint(0, WIDTH)
+            y = random.randint(0, HEIGHT)
+            brightness = random.randint(50, 255)
+            size = random.choice([1, 1, 1, 2])  # Mostly small stars
+            self.stars.append((x, y, brightness, size))
+    
+    def draw(self, screen):
+        for x, y, brightness, size in self.stars:
+            color = (brightness, brightness, brightness)
+            if size == 1:
+                screen.set_at((x, y), color)
+            else:
+                pygame.draw.circle(screen, color, (x, y), size)
+
+class SpaceExplorer:
+    """Main space exploration visualizer"""
+    
+    def __init__(self):
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("🚀 Space Exploration Visualizer")
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.Font(None, 24)
+        self.small_font = pygame.font.Font(None, 18)
+        
+        # Initialize components
+        self.star_field = StarField()
+        self.setup_solar_system()
+        self.setup_asteroids()
+        self.setup_spacecraft()
+        
+        # UI state
+        self.paused = False
+        self.show_info = True
+        self.zoom = 1.0
+        self.time_speed = 1.0
+        
+    def setup_solar_system(self):
+        """Create the solar system"""
+        # Create moons
+        earth_moon = Moon(25, 3, GRAY, 0.08)
+        mars_moons = [Moon(15, 2, GRAY, 0.12), Moon(20, 1, GRAY, 0.09)]
+        jupiter_moons = [Moon(35, 4, (200, 200, 150), 0.15), 
+                        Moon(45, 3, (180, 180, 130), 0.12),
+                        Moon(55, 2, (160, 160, 110), 0.10)]
+        
+        self.planets = [
+            CelestialBody("Mercury", 60, 4, (169, 169, 169), 0.024),
+            CelestialBody("Venus", 80, 6, (255, 198, 73), 0.018),
+            CelestialBody("Earth", 110, 8, BLUE, 0.015, [earth_moon]),
+            CelestialBody("Mars", 140, 6, RED, 0.012, mars_moons),
+            CelestialBody("Jupiter", 200, 20, ORANGE, 0.008, jupiter_moons),
+            CelestialBody("Saturn", 260, 16, GOLD, 0.006, [], True),
+            CelestialBody("Uranus", 320, 12, (64, 224, 208), 0.004),
+            CelestialBody("Neptune", 380, 12, (30, 144, 255), 0.003)
+        ]
+        
+        # Sun
+        self.sun_pulse = 0
+    
+    def setup_asteroids(self):
+        """Create asteroid belt"""
+        self.asteroids = []
+        for _ in range(50):
+            distance = random.uniform(160, 190)  # Between Mars and Jupiter
+            size = random.uniform(1, 4)
+            speed = random.uniform(0.005, 0.015)
+            self.asteroids.append(Asteroid(distance, size, speed))
+    
+    def setup_spacecraft(self):
+        """Create spacecraft missions"""
+        self.spacecraft = [
+            Spacecraft("Voyager 1", (CENTER_X, CENTER_Y), self.planets[4], (255, 255, 255)),
+            Spacecraft("Mars Rover", (CENTER_X, CENTER_Y), self.planets[3], (255, 0, 0)),
+            Spacecraft("Cassini", (CENTER_X, CENTER_Y), self.planets[5], (0, 255, 255))
+        ]
+    
+    def handle_events(self):
+        """Handle user input"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    self.paused = not self.paused
+                elif event.key == pygame.K_i:
+                    self.show_info = not self.show_info
+                elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                    self.time_speed = min(5.0, self.time_speed + 0.5)
+                elif event.key == pygame.K_MINUS:
+                    self.time_speed = max(0.1, self.time_speed - 0.5)
+                elif event.key == pygame.K_r:
+                    self.setup_spacecraft()  # Reset spacecraft
+        
+        return True
+    
+    def update(self, dt: float):
+        """Update all objects"""
+        if not self.paused:
+            effective_dt = dt * self.time_speed
+            
+            # Update planets
+            for planet in self.planets:
+                planet.update(effective_dt)
+            
+            # Update asteroids
+            for asteroid in self.asteroids:
+                asteroid.update(effective_dt)
+            
+            # Update spacecraft
+            for craft in self.spacecraft:
+                craft.update(effective_dt)
+            
+            # Update sun pulse
+            self.sun_pulse += effective_dt * 3
+    
+    def draw_sun(self):
+        """Draw the sun with pulsing effect"""
+        base_radius = 15
+        pulse_radius = base_radius + 3 * math.sin(self.sun_pulse)
+        
+        # Draw corona
+        corona_color = (255, 200, 100, 50)
+        for i in range(3):
+            radius = pulse_radius + (i + 1) * 5
+            alpha = 100 - i * 30
+            color = (255, 255 - i * 30, 100 - i * 20)
+            pygame.draw.circle(self.screen, color, (CENTER_X, CENTER_Y), int(radius), 2)
+        
+        # Draw sun
+        pygame.draw.circle(self.screen, YELLOW, (CENTER_X, CENTER_Y), int(pulse_radius))
+        pygame.draw.circle(self.screen, (255, 255, 200), (CENTER_X, CENTER_Y), int(pulse_radius * 0.7))
+    
+    def draw_ui(self):
+        """Draw user interface"""
+        if self.show_info:
+            # Draw info panel
+            info_lines = [
+                "🚀 Space Exploration Visualizer",
+                f"Time Speed: {self.time_speed:.1f}x",
+                "Controls:",
+                "SPACE - Pause/Resume",
+                "+/- - Speed Control",
+                "I - Toggle Info",
+                "R - Reset Missions"
+            ]
+            
+            for i, line in enumerate(info_lines):
+                color = WHITE if i != 0 else GOLD
+                text = self.small_font.render(line, True, color)
+                self.screen.blit(text, (10, 10 + i * 20))
+        
+        # Draw spacecraft status
+        y_offset = HEIGHT - 100
+        for i, craft in enumerate(self.spacecraft):
+            status = "ARRIVED" if craft.arrived else "EN ROUTE"
+            text = self.small_font.render(f"{craft.name}: {status}", True, craft.color)
+            self.screen.blit(text, (10, y_offset + i * 20))
+        
+        # Draw pause indicator
+        if self.paused:
+            pause_text = self.font.render("PAUSED", True, RED)
+            rect = pause_text.get_rect(center=(WIDTH // 2, 50))
+            self.screen.blit(pause_text, rect)
+    
+    def draw(self):
+        """Draw everything"""
+        self.screen.fill(BLACK)
+        
+        # Draw star field
+        self.star_field.draw(self.screen)
+        
+        # Draw orbital paths
+        for planet in self.planets:
+            pygame.draw.circle(self.screen, (30, 30, 30), (CENTER_X, CENTER_Y), 
+                             int(planet.distance), 1)
+        
+        # Draw asteroid belt indication
+        pygame.draw.circle(self.screen, (50, 40, 30), (CENTER_X, CENTER_Y), 175, 1)
+        
+        # Draw sun
+        self.draw_sun()
+        
+        # Draw planets
+        for planet in self.planets:
+            planet.draw(self.screen)
+        
+        # Draw asteroids
+        for asteroid in self.asteroids:
+            asteroid.draw(self.screen)
+        
+        # Draw spacecraft
+        for craft in self.spacecraft:
+            craft.draw(self.screen)
+        
+        # Draw UI
+        self.draw_ui()
+        
+        pygame.display.flip()
+    
+    def run(self):
+        """Main game loop"""
+        running = True
+        
+        print("🚀 Starting Space Exploration Visualizer...")
+        print("Controls:")
+        print("  SPACE - Pause/Resume")
+        print("  +/- - Adjust time speed")
+        print("  I - Toggle info panel")
+        print("  R - Reset spacecraft missions")
+        
+        while running:
+            dt = self.clock.tick(FPS) / 1000.0  # Delta time in seconds
+            
+            running = self.handle_events()
+            self.update(dt)
+            self.draw()
+        
+        pygame.quit()
+
+if __name__ == "__main__":
+    explorer = SpaceExplorer()
+    explorer.run()
+
